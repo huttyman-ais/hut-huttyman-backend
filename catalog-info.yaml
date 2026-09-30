@@ -1,0 +1,50 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: hut-huttyman-backend
+  description: Backend API for hut-huttyman (Node.js + Express)
+  annotations:
+    github.com/project-slug: huttyman-ais/hut-huttyman-backend
+    backstage.io/techdocs-ref: dir:.
+  tags: [nodejs, express, backend, api]
+spec:
+  type: service
+  lifecycle: dev
+  owner: user:default/bob
+  system: hut-huttyman
+  providesApis:
+    - hut-huttyman-backend-api
+
+  dependsOn:
+    - resource:hut-huttyman-database
+
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: hut-huttyman-backend-api
+  description: REST API for hut-huttyman
+spec:
+  type: openapi
+  lifecycle: dev
+  owner: user:default/bob
+  system: hut-huttyman
+  definition: |
+    openapi: 3.0.0
+    info:
+      title: hut-huttyman API
+      version: '0.1.0'
+    paths:
+      /health:
+        get:
+          summary: Health check
+          responses:
+            '200':
+              description: OK
+      /api/items:
+        get:
+          summary: List items
+          responses:
+            '200':
+              description: OK

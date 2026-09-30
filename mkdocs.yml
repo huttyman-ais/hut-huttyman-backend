@@ -1,0 +1,5 @@
+site_name: 'hut-huttyman-backend'
+nav:
+  - Home: index.md
+plugins:
+  - techdocs-core

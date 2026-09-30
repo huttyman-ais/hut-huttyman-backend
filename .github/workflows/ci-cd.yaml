@@ -1,0 +1,74 @@
+name: CI/CD - backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # required for OIDC login to Azure
+  contents: read
+  packages: write # required to push to ghcr.io
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # This file is copied verbatim by the Scaffolder (copyWithoutRender in template.yaml) since
+      # GitHub Actions expressions use the same ${{ }} delimiter as Backstage's Nunjucks templating.
+      # Per-app values are derived at runtime from the repo name instead.
+      - name: Derive app and resource names
+        run: |
+          APP_NAME="${GITHUB_REPOSITORY##*/}"
+          APP_NAME="${APP_NAME%-backend}"
+          ENVIRONMENT="dev"
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+          echo "RESOURCE_GROUP=rg-$APP_NAME-$ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/${{ github.repository_owner }}/$APP_NAME-backend:${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "CONTAINER_APP_NAME=$APP_NAME-backend" >> "$GITHUB_ENV"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image
+        run: |
+          docker build -t "${{ env.IMAGE }}" .
+          docker push "${{ env.IMAGE }}"
+
+      - name: Deploy to Container Apps
+        run: |
+          for attempt in $(seq 1 30); do
+            if az containerapp show --name "${{ env.CONTAINER_APP_NAME }}" --resource-group "${{ env.RESOURCE_GROUP }}" >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" -eq 30 ]]; then
+              echo 'Container App was not provisioned within 10 minutes' >&2
+              exit 1
+            fi
+            sleep 20
+          done
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image "${{ env.IMAGE }}"
+
+      - name: Summary
+        run: |
+          FQDN=$(az containerapp show --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "### Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API URL: https://$FQDN" >> "$GITHUB_STEP_SUMMARY"
